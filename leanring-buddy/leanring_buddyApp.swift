@@ -9,7 +9,6 @@
 
 import ServiceManagement
 import SwiftUI
-import Sparkle
 
 @main
 struct leanring_buddyApp: App {
@@ -25,13 +24,13 @@ struct leanring_buddyApp: App {
     }
 }
 
-/// Manages the companion lifecycle: creates the menu bar panel and starts
-/// the companion voice pipeline on launch.
+/// Manages the companion lifecycle: creates the menu bar panel, starts
+/// the companion voice pipeline, and launches the local gateway process.
 @MainActor
 final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarPanelManager: MenuBarPanelManager?
     private let companionManager = CompanionManager()
-    private var sparkleUpdaterController: SPUStandardUpdaterController?
+    private let backendManager = BackendManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("🎯 Clicky: Starting...")
@@ -39,10 +38,13 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 0])
 
-        ClickyAnalytics.configure()
-        ClickyAnalytics.trackAppOpened()
+        // Launch the bundled gateway binary (or detect an external one)
+        backendManager.launchGateway()
 
-        menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
+        menuBarPanelManager = MenuBarPanelManager(
+            companionManager: companionManager,
+            backendManager: backendManager
+        )
         companionManager.start()
         // Auto-open the panel if the user still needs to do something:
         // either they haven't onboarded yet, or permissions were revoked.
@@ -50,11 +52,11 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             menuBarPanelManager?.showPanelOnLaunch()
         }
         registerAsLoginItemIfNeeded()
-        // startSparkleUpdater()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         companionManager.stop()
+        backendManager.terminateGateway()
     }
 
     /// Registers the app as a login item so it launches automatically on
@@ -69,21 +71,6 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 print("⚠️ Clicky: Failed to register as login item: \(error)")
             }
-        }
-    }
-
-    private func startSparkleUpdater() {
-        let updaterController = SPUStandardUpdaterController(
-            startingUpdater: false,
-            updaterDelegate: nil,
-            userDriverDelegate: nil
-        )
-        self.sparkleUpdaterController = updaterController
-
-        do {
-            try updaterController.updater.start()
-        } catch {
-            print("⚠️ Clicky: Sparkle updater failed to start: \(error)")
         }
     }
 }

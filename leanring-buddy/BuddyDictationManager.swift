@@ -92,9 +92,13 @@ enum BuddyPushToTalkShortcut {
         case keyUp
     }
 
-    static let currentShortcutOption: ShortcutOption = .controlOption
+    static let primaryShortcutOption: ShortcutOption = .controlOption
+    static let supportedShortcutOptions: [ShortcutOption] = [
+        .controlOption,
+        .controlOptionSpace
+    ]
     static let pushToTalkKeyCode: UInt16 = 49 // Space
-    static let pushToTalkDisplayText = currentShortcutOption.displayText
+    static let pushToTalkDisplayText = primaryShortcutOption.displayText
     static let pushToTalkTooltipText = "push to talk (\(pushToTalkDisplayText))"
 
     static func shortcutTransition(
@@ -160,7 +164,31 @@ enum BuddyPushToTalkShortcut {
         modifierFlags: NSEvent.ModifierFlags,
         wasShortcutPreviouslyPressed: Bool
     ) -> ShortcutTransition {
-        if let modifierOnlyFlags = currentShortcutOption.modifierOnlyFlags {
+        for shortcutOption in supportedShortcutOptions {
+            let transition = shortcutTransition(
+                matching: shortcutOption,
+                shortcutEventType: shortcutEventType,
+                keyCode: keyCode,
+                modifierFlags: modifierFlags,
+                wasShortcutPreviouslyPressed: wasShortcutPreviouslyPressed
+            )
+
+            if transition != .none {
+                return transition
+            }
+        }
+
+        return .none
+    }
+
+    private static func shortcutTransition(
+        matching shortcutOption: ShortcutOption,
+        shortcutEventType: ShortcutEventType,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        wasShortcutPreviouslyPressed: Bool
+    ) -> ShortcutTransition {
+        if let modifierOnlyFlags = shortcutOption.modifierOnlyFlags {
             guard shortcutEventType == .flagsChanged else { return .none }
 
             let isShortcutCurrentlyPressed = modifierFlags.contains(modifierOnlyFlags)
@@ -176,7 +204,7 @@ enum BuddyPushToTalkShortcut {
             return .none
         }
 
-        guard let pushToTalkModifierFlags = currentShortcutOption.spaceShortcutModifierFlags else {
+        guard let pushToTalkModifierFlags = shortcutOption.spaceShortcutModifierFlags else {
             return .none
         }
 

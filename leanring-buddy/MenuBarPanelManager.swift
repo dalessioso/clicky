@@ -32,11 +32,13 @@ final class MenuBarPanelManager: NSObject {
     private var dismissPanelObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
-    private let panelWidth: CGFloat = 320
-    private let panelHeight: CGFloat = 380
+    private let backendManager: BackendManager
+    private let defaultPanelWidth: CGFloat = 320
+    private let defaultPanelHeight: CGFloat = 380
 
-    init(companionManager: CompanionManager) {
+    init(companionManager: CompanionManager, backendManager: BackendManager) {
         self.companionManager = companionManager
+        self.backendManager = backendManager
         super.init()
         createStatusItem()
 
@@ -144,16 +146,18 @@ final class MenuBarPanelManager: NSObject {
     }
 
     private func createPanel() {
-        let companionPanelView = CompanionPanelView(companionManager: companionManager)
-            .frame(width: panelWidth)
+        let companionPanelView = CompanionPanelView(
+            companionManager: companionManager,
+            backendManager: backendManager
+        )
 
         let hostingView = NSHostingView(rootView: companionPanelView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
+        hostingView.frame = NSRect(x: 0, y: 0, width: defaultPanelWidth, height: defaultPanelHeight)
         hostingView.wantsLayer = true
         hostingView.layer?.backgroundColor = .clear
 
         let menuBarPanel = KeyablePanel(
-            contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight),
+            contentRect: NSRect(x: 0, y: 0, width: defaultPanelWidth, height: defaultPanelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -182,17 +186,17 @@ final class MenuBarPanelManager: NSObject {
         let statusItemFrame = buttonWindow.frame
         let gapBelowMenuBar: CGFloat = 4
 
-        // Calculate the panel's content height from the hosting view's fitting size
-        // so the panel snugly wraps the SwiftUI content instead of using a fixed height.
-        let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: panelWidth, height: panelHeight)
-        let actualPanelHeight = fittingSize.height
+        // Calculate the panel's content size from the hosting view's fitting size
+        let fittingSize = panel.contentView?.fittingSize ?? CGSize(width: defaultPanelWidth, height: defaultPanelHeight)
+        let actualPanelWidth = fittingSize.width > 0 ? fittingSize.width : defaultPanelWidth
+        let actualPanelHeight = fittingSize.height > 0 ? fittingSize.height : defaultPanelHeight
 
         // Horizontally center the panel beneath the status item icon
-        let panelOriginX = statusItemFrame.midX - (panelWidth / 2)
+        let panelOriginX = statusItemFrame.midX - (actualPanelWidth / 2)
         let panelOriginY = statusItemFrame.minY - actualPanelHeight - gapBelowMenuBar
 
         panel.setFrame(
-            NSRect(x: panelOriginX, y: panelOriginY, width: panelWidth, height: actualPanelHeight),
+            NSRect(x: panelOriginX, y: panelOriginY, width: actualPanelWidth, height: actualPanelHeight),
             display: true
         )
     }

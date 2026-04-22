@@ -23,11 +23,15 @@ struct CompanionScreenCapture {
 
 @MainActor
 enum CompanionScreenCaptureUtility {
+    private static let primaryFocusLongestDimensionInPixels = 768
+    private static let secondaryContextLongestDimensionInPixels = 448
+    private static let maximumNumberOfScreensToUpload = 2
 
-    /// Captures all connected displays as JPEG data, labeling each with
-    /// whether the user's cursor is on that screen. This gives the AI
-    /// full context across multiple monitors.
-    static func captureAllScreensAsJPEG() async throws -> [CompanionScreenCapture] {
+    /// Captures the cursor screen at higher detail and, when present, one
+    /// additional screen as low-cost context. This keeps text on the
+    /// primary screen readable while avoiding the latency hit of sending
+    /// every monitor at full vision resolution.
+    static func capturePrioritizedScreensAsJPEG() async throws -> [CompanionScreenCapture] {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
         guard !content.displays.isEmpty else {
@@ -67,9 +71,12 @@ enum CompanionScreenCaptureUtility {
             return false
         }
 
+        let displaysToCapture = Array(
+            sortedDisplays.prefix(Self.maximumNumberOfScreensToUpload)
+        )
         var capturedScreens: [CompanionScreenCapture] = []
 
-        for (displayIndex, display) in sortedDisplays.enumerated() {
+        for (displayIndex, display) in displaysToCapture.enumerated() {
             // Use NSScreen.frame (AppKit coordinates, bottom-left origin) so
             // displayFrame is in the same coordinate system as NSEvent.mouseLocation
             // and the overlay window's screenFrame in BlueCursorView.
@@ -81,7 +88,11 @@ enum CompanionScreenCaptureUtility {
             let filter = SCContentFilter(display: display, excludingWindows: ownAppWindows)
 
             let configuration = SCStreamConfiguration()
-            let maxDimension = 1280
+            // Keep the cursor screen readable for OCR-like tasks, but send
+            // non-focus screens as smaller context thumbnails.
+            let maxDimension = isCursorScreen
+                ? Self.primaryFocusLongestDimensionInPixels
+                : Self.secondaryContextLongestDimensionInPixels
             let aspectRatio = CGFloat(display.width) / CGFloat(display.height)
             if display.width >= display.height {
                 configuration.width = maxDimension
@@ -97,17 +108,26 @@ enum CompanionScreenCaptureUtility {
             )
 
             guard let jpegData = NSBitmapImageRep(cgImage: cgImage)
-                    .representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+                    .representation(using: .jpeg, properties: [.compressionFactor: 0.65]) else {
                 continue
             }
 
             let screenLabel: String
+            let omittedDisplayCount = max(0, sortedDisplays.count - displaysToCapture.count)
             if sortedDisplays.count == 1 {
                 screenLabel = "user's screen (cursor is here)"
             } else if isCursorScreen {
-                screenLabel = "screen \(displayIndex + 1) of \(sortedDisplays.count) — cursor is on this screen (primary focus)"
+                if omittedDisplayCount > 0 {
+                    screenLabel = "screen \(displayIndex + 1) of \(displaysToCapture.count) uploaded — cursor is on this screen (primary focus, other screens omitted for speed)"
+                } else {
+                    screenLabel = "screen \(displayIndex + 1) of \(displaysToCapture.count) uploaded — cursor is on this screen (primary focus)"
+                }
             } else {
-                screenLabel = "screen \(displayIndex + 1) of \(sortedDisplays.count) — secondary screen"
+                if omittedDisplayCount > 0 {
+                    screenLabel = "screen \(displayIndex + 1) of \(displaysToCapture.count) uploaded — secondary context (other screens omitted for speed)"
+                } else {
+                    screenLabel = "screen \(displayIndex + 1) of \(displaysToCapture.count) uploaded — secondary context"
+                }
             }
 
             capturedScreens.append(CompanionScreenCapture(

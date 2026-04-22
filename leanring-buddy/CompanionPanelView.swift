@@ -12,73 +12,121 @@ import SwiftUI
 
 struct CompanionPanelView: View {
     @ObservedObject var companionManager: CompanionManager
-    @State private var emailInput: String = ""
+    @ObservedObject var backendManager: BackendManager
+    @State private var showingHistory: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            panelHeader
-            Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
+        Group {
+            if showingHistory {
+                CompanionHistoryView(isShowing: $showingHistory)
+            } else {
+                mainPanel
+            }
+        }
+        // Force an explicit frame update when the child view size changes
+        .fixedSize()
+    }
 
-            permissionsCopySection
-                .padding(.top, 16)
-                .padding(.horizontal, 16)
+    private var mainPanel: some View {
+        ZStack {
+            VStack(alignment: .leading, spacing: 0) {
+                panelHeader
+                Divider()
+                    .background(DS.Colors.borderSubtle)
+                    .padding(.horizontal, 16)
 
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                permissionsCopySection
+                    .padding(.top, 16)
+                    .padding(.horizontal, 16)
+
+                if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                    Spacer()
+                        .frame(height: 12)
+
+                    gatewayStatusRow
+                        .padding(.horizontal, 16)
+                }
+
+                if !companionManager.allPermissionsGranted {
+                    Spacer()
+                        .frame(height: 16)
+
+                    settingsSection
+                        .padding(.horizontal, 16)
+                }
+
+                if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                    Spacer()
+                        .frame(height: 16)
+
+                    startButton
+                        .padding(.horizontal, 16)
+                }
+
+                // Show Clicky toggle — hidden for now
+                // if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
+                //     Spacer()
+                //         .frame(height: 16)
+                //
+                //     showClickyCursorToggleRow
+                //         .padding(.horizontal, 16)
+                // }
+
                 Spacer()
                     .frame(height: 12)
 
-                modelPickerRow
+                Divider()
+                    .background(DS.Colors.borderSubtle)
                     .padding(.horizontal, 16)
+
+                footerSection
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
             }
 
-            if !companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                settingsSection
-                    .padding(.horizontal, 16)
+            // First-boot setup overlay — blocks interaction while models download
+            if backendManager.isPerformingFirstBootSetup {
+                firstBootSetupOverlay
             }
-
-            if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                startButton
-                    .padding(.horizontal, 16)
-            }
-
-            // Show Clicky toggle — hidden for now
-            // if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            //     Spacer()
-            //         .frame(height: 16)
-            //
-            //     showClickyCursorToggleRow
-            //         .padding(.horizontal, 16)
-            // }
-
-            if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-                Spacer()
-                    .frame(height: 16)
-
-                dmFarzaButton
-                    .padding(.horizontal, 16)
-            }
-
-            Spacer()
-                .frame(height: 12)
-
-            Divider()
-                .background(DS.Colors.borderSubtle)
-                .padding(.horizontal, 16)
-
-            footerSection
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
         }
         .frame(width: 320)
         .background(panelBackground)
+    }
+
+    // MARK: - First Boot Setup Overlay
+
+    private var firstBootSetupOverlay: some View {
+        VStack(spacing: 16) {
+            Spacer()
+
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle(tint: DS.Colors.accentText))
+                .scaleEffect(1.2)
+
+            Text("Setting up your secure environment…")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+
+            if !backendManager.setupStatusMessage.isEmpty {
+                Text(backendManager.setupStatusMessage)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+
+            if let errorMessage = backendManager.setupErrorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.destructiveText)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DS.Colors.background.opacity(0.95))
     }
 
     // MARK: - Header
@@ -92,7 +140,7 @@ struct CompanionPanelView: View {
                     .frame(width: 8, height: 8)
                     .shadow(color: statusDotColor.opacity(0.6), radius: 4)
 
-                Text("Clicky")
+                Text("LoClicky")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(DS.Colors.textPrimary)
             }
@@ -127,22 +175,12 @@ struct CompanionPanelView: View {
     @ViewBuilder
     private var permissionsCopySection: some View {
         if companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            Text("Hold Control+Option to talk.")
+            Text("Hold Control+Option to talk. If Tahoe misses that shortcut, use Control+Option+Space. Requests stay local and route through the gateway on 127.0.0.1:5000.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if companionManager.allPermissionsGranted && !companionManager.hasSubmittedEmail {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Drop your email to get started.")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(DS.Colors.textSecondary)
-                Text("If I keep building this, I'll keep you in the loop.")
-                    .font(.system(size: 11))
-                    .foregroundColor(DS.Colors.textTertiary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         } else if companionManager.allPermissionsGranted {
-            Text("You're all set. Hit Start to meet Clicky.")
+            Text("You're all set. Hit Start to meet LoClicky.")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -153,7 +191,7 @@ struct CompanionPanelView: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
-                Text("Some permissions were revoked. Grant all four below to keep using Clicky.")
+                Text("Some permissions were revoked. Grant all four below to keep using LoClicky.")
                     .font(.system(size: 11))
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -161,7 +199,7 @@ struct CompanionPanelView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Hi, I'm Farza. This is Clicky.")
+                Text("Hi, I'm Farza. This is LoClicky.")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(DS.Colors.textSecondary)
 
@@ -170,7 +208,7 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Nothing runs in the background. Clicky will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ.")
+                Text("Nothing runs in the background. LoClicky will only take a screenshot when you press the hot key. So, you can give that permission in peace. If you are still sus, eh, I can't do much there champ.")
                     .font(.system(size: 11))
                     .foregroundColor(Color(red: 0.9, green: 0.4, blue: 0.4))
                     .fixedSize(horizontal: false, vertical: true)
@@ -184,59 +222,21 @@ struct CompanionPanelView: View {
     @ViewBuilder
     private var startButton: some View {
         if !companionManager.hasCompletedOnboarding && companionManager.allPermissionsGranted {
-            if !companionManager.hasSubmittedEmail {
-                VStack(spacing: 8) {
-                    TextField("Enter your email", text: $emailInput)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundColor(DS.Colors.textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .fill(Color.white.opacity(0.08))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                                .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-                        )
-
-                    Button(action: {
-                        companionManager.submitEmail(emailInput)
-                    }) {
-                        Text("Submit")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(DS.Colors.textOnAccent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                    .fill(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                          ? DS.Colors.accent.opacity(0.4)
-                                          : DS.Colors.accent)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .disabled(emailInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            } else {
-                Button(action: {
-                    companionManager.triggerOnboarding()
-                }) {
-                    Text("Start")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DS.Colors.textOnAccent)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
-                                .fill(DS.Colors.accent)
-                        )
-                }
-                .buttonStyle(.plain)
-                .pointerCursor()
+            Button(action: {
+                companionManager.triggerOnboarding()
+            }) {
+                Text("Start")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DS.Colors.textOnAccent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: DS.CornerRadius.large, style: .continuous)
+                            .fill(DS.Colors.accent)
+                    )
             }
+            .buttonStyle(.plain)
+            .pointerCursor()
         }
     }
 
@@ -555,7 +555,7 @@ struct CompanionPanelView: View {
                     .foregroundColor(DS.Colors.textTertiary)
                     .frame(width: 16)
 
-                Text("Show Clicky")
+                Text("Show LoClicky")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
@@ -596,86 +596,21 @@ struct CompanionPanelView: View {
         .padding(.vertical, 4)
     }
 
-    // MARK: - Model Picker
+    // MARK: - Gateway Status
 
-    private var modelPickerRow: some View {
+    private var gatewayStatusRow: some View {
         HStack {
-            Text("Model")
+            Text("Gateway")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
 
             Spacer()
 
-            HStack(spacing: 0) {
-                modelOptionButton(label: "Sonnet", modelID: "claude-sonnet-4-6")
-                modelOptionButton(label: "Opus", modelID: "claude-opus-4-6")
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
+            Text("127.0.0.1:5000")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(DS.Colors.textTertiary)
         }
         .padding(.vertical, 4)
-    }
-
-    private func modelOptionButton(label: String, modelID: String) -> some View {
-        let isSelected = companionManager.selectedModel == modelID
-        return Button(action: {
-            companionManager.setSelectedModel(modelID)
-        }) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(isSelected ? DS.Colors.textPrimary : DS.Colors.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(isSelected ? Color.white.opacity(0.1) : Color.clear)
-                )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-    }
-
-    // MARK: - DM Farza Button
-
-    private var dmFarzaButton: some View {
-        Button(action: {
-            if let url = URL(string: "https://x.com/farzatv") {
-                NSWorkspace.shared.open(url)
-            }
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: "bubble.left.fill")
-                    .font(.system(size: 12, weight: .medium))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Got feedback? DM me")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Bugs, ideas, anything — I read every message.")
-                        .font(.system(size: 10))
-                        .foregroundColor(DS.Colors.textTertiary)
-                }
-            }
-            .foregroundColor(DS.Colors.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DS.CornerRadius.medium, style: .continuous)
-                    .stroke(DS.Colors.borderSubtle, lineWidth: 0.5)
-            )
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
     }
 
     // MARK: - Footer
@@ -688,7 +623,7 @@ struct CompanionPanelView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "power")
                         .font(.system(size: 11, weight: .medium))
-                    Text("Quit Clicky")
+                    Text("Quit LoClicky")
                         .font(.system(size: 12, weight: .medium))
                 }
                 .foregroundColor(DS.Colors.textTertiary)
@@ -697,6 +632,22 @@ struct CompanionPanelView: View {
             .pointerCursor()
 
             if companionManager.hasCompletedOnboarding {
+                Button(action: {
+                    withAnimation {
+                        showingHistory = true
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("History")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(DS.Colors.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .pointerCursor()
+
                 Spacer()
 
                 Button(action: {

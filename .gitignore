@@ -1,8 +1,35 @@
+# Node / worker
 worker/node_modules/
 worker/.dev.vars
+
+# Python Virtual Environment
+venv/
+env/
+__pycache__/
+
+# Mac OS files
 .DS_Store
 *.xcuserstate
+
+# Build Artifacts
 build/
 releases/
+gateway/dist/
+gateway/build/
+*.spec
+
+# Heavy Model Weights
+gateway/base.pt
+gateway/.whisper-cache-download/
+gateway/whisper-model/
+
+# User-specific Configs
+gateway/config.json
+
+# Local tool state
 .claude/
 coding-plans/
+
+# Xcode user data
+leanring-buddy.xcodeproj/xcuserdata/
+leanring-buddy.xcodeproj/project.xcworkspace/xcuserdata/

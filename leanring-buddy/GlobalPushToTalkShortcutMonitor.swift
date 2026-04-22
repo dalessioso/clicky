@@ -81,6 +81,7 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
 
         CFRunLoopAddSource(CFRunLoopGetMain(), globalEventTapRunLoopSource, .commonModes)
         CGEvent.tapEnable(tap: globalEventTap, enable: true)
+        print("⌨️ Global push-to-talk event tap started")
     }
 
     func stop() {
@@ -95,6 +96,8 @@ final class GlobalPushToTalkShortcutMonitor: ObservableObject {
             CFMachPortInvalidate(globalEventTap)
             self.globalEventTap = nil
         }
+
+        print("⌨️ Global push-to-talk event tap stopped")
     }
 
     private func handleGlobalEventTap(

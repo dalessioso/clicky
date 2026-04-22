@@ -1,152 +1,175 @@
-# Hi, this is Clicky.
-It's an AI teacher that lives as a buddy next to your cursor. It can see your screen, talk to you, and even point at stuff. Kinda like having a real teacher next to you.
+# LoClicky
 
-Download it [here](https://www.clicky.so/) for free.
+LoClicky is an experimental macOS menu bar assistant forked from Clicky.
 
-Here's the [original tweet](https://x.com/FarzaTV/status/2041314633978659092) that kinda blew up for a demo for more context.
+It lives in the status bar, listens with push-to-talk, takes a screenshot, sends the transcript plus screen context through a local gateway on `127.0.0.1:5000`, speaks back a short answer, and can point at UI with a blue cursor overlay.
 
-![Clicky — an ai buddy that lives on your mac](clicky-demo.gif)
+This fork is useful as a hackable base for a screen-aware desktop assistant. It is not a polished product, and local-only mode on a Mac is a real tradeoff.
 
-This is the open-source version of Clicky for those that want to hack on it, build their own features, or just see how it works under the hood.
+## Reality Check
 
-## Get started with Claude Code
+If your goal is a fast, high-quality daily assistant, cloud APIs are still the better fit.
 
-The fastest way to get this running is with [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+If your goal is privacy, hackability, local routing, or learning how to build a menu bar AI companion, this repo is a good starting point.
 
-Once you get Claude running, paste this:
+What local mode does well:
 
-```
-Hi Claude.
+- keeps the app talking to one localhost gateway instead of shipping secrets in Swift
+- supports local transcription, local chat routing, and local TTS
+- works as a multimodal prototype that can read screenshots and suggest where to click
 
-Clone https://github.com/farzaa/clicky.git into my current directory.
+What local mode does poorly:
 
-Then read the CLAUDE.md. I want to get Clicky running locally on my Mac.
+- cold start is slow because the local vision model has to warm up
+- screenshot reasoning is noticeably slower than cloud models
+- small local vision models are weaker at general reasoning and tool use
+- anything that depends on the live internet is still limited by the local model and the rest of the app
 
-Help me set up everything — the Cloudflare Worker with my own API keys, the proxy URLs, and getting it building in Xcode. Walk me through it.
-```
+## Current Architecture
 
-That's it. It'll clone the repo, read the docs, and walk you through the whole setup. Once you're running you can just keep talking to it — build features, fix bugs, whatever. Go crazy.
+- `leanring-buddy/`: Swift macOS menu bar app
+- `gateway/server.py`: loopback-only FastAPI gateway for chat, transcription, TTS, and history
+- `gateway/config.json`: per-service routing config for `local` or `cloud`
+- `gateway/build_backend.sh`: builds the frozen `gateway-server-mac` binary with PyInstaller
+- `worker/`: legacy Cloudflare Worker kept around for reference; the local gateway is now the main path
 
-## Manual setup
+The app itself only talks to the local gateway. The gateway decides whether each service uses:
 
-If you want to do it yourself, here's the deal.
+- `local` providers such as `llama.cpp`, `faster-whisper`, and macOS `say`
+- `cloud` providers such as Anthropic, OpenAI, AssemblyAI, and ElevenLabs
+
+That means you can mix modes. For example:
+
+- cloud chat + local transcription + local TTS
+- local chat + cloud transcription + local TTS
+- fully local for experimentation
+
+## Quick Start
 
 ### Prerequisites
 
-- macOS 14.2+ (for ScreenCaptureKit)
+- macOS 14.2+
 - Xcode 15+
-- Node.js 18+ (for the Cloudflare Worker)
-- A [Cloudflare](https://cloudflare.com) account (free tier works)
-- API keys for: [Anthropic](https://console.anthropic.com), [AssemblyAI](https://www.assemblyai.com), [ElevenLabs](https://elevenlabs.io)
+- Python 3.10+ for the gateway source workflow
+- `llama-server` installed if you want local chat through `llama.cpp`
 
-### 1. Set up the Cloudflare Worker
-
-The Worker is a tiny proxy that holds your API keys. The app talks to the Worker, the Worker talks to the APIs. This way your keys never ship in the app binary.
+### 1. Install gateway dependencies
 
 ```bash
-cd worker
-npm install
+cd gateway
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-Now add your secrets. Wrangler will prompt you to paste each one:
+### 2. Configure routing
+
+Edit `gateway/config.json` and choose `local` or `cloud` for:
+
+- `chat`
+- `transcription`
+- `tts`
+
+This file is intentionally ignored by git so you can keep your own keys and local settings out of version control.
+
+### 3. Build the bundled gateway binary
 
 ```bash
-npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put ASSEMBLYAI_API_KEY
-npx wrangler secret put ELEVENLABS_API_KEY
+cd gateway
+./build_backend.sh
 ```
 
-For the ElevenLabs voice ID, open `wrangler.toml` and set it there (it's not sensitive):
+This creates `gateway/dist/gateway-server-mac`.
 
-```toml
-[vars]
-ELEVENLABS_VOICE_ID = "your-voice-id-here"
-```
-
-Deploy it:
-
-```bash
-npx wrangler deploy
-```
-
-It'll give you a URL like `https://your-worker-name.your-subdomain.workers.dev`. Copy that.
-
-### 2. Run the Worker locally (for development)
-
-If you want to test changes to the Worker without deploying:
-
-```bash
-cd worker
-npx wrangler dev
-```
-
-This starts a local server (usually `http://localhost:8787`) that behaves exactly like the deployed Worker. You'll need to create a `.dev.vars` file in the `worker/` directory with your keys:
-
-```
-ANTHROPIC_API_KEY=sk-ant-...
-ASSEMBLYAI_API_KEY=...
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=...
-```
-
-Then update the proxy URLs in the Swift code to point to `http://localhost:8787` instead of the deployed Worker URL while developing. Grep for `clicky-proxy` to find them all.
-
-### 3. Update the proxy URLs in the app
-
-The app has the Worker URL hardcoded in a few places. Search for `your-worker-name.your-subdomain.workers.dev` and replace it with your Worker URL:
-
-```bash
-grep -r "clicky-proxy" leanring-buddy/
-```
-
-You'll find it in:
-- `CompanionManager.swift` — Claude chat + ElevenLabs TTS
-- `AssemblyAIStreamingTranscriptionProvider.swift` — AssemblyAI token endpoint
-
-### 4. Open in Xcode and run
+### 4. Open the app in Xcode
 
 ```bash
 open leanring-buddy.xcodeproj
 ```
 
-In Xcode:
-1. Select the `leanring-buddy` scheme (yes, the typo is intentional, long story)
-2. Set your signing team under Signing & Capabilities
-3. Hit **Cmd + R** to build and run
+Then in Xcode:
 
-The app will appear in your menu bar (not the dock). Click the icon to open the panel, grant the permissions it asks for, and you're good.
+1. Select the `leanring-buddy` scheme.
+2. Set your signing team.
+3. Press `Cmd + R`.
 
-### Permissions the app needs
+Important:
 
-- **Microphone** — for push-to-talk voice capture
-- **Accessibility** — for the global keyboard shortcut (Control + Option)
-- **Screen Recording** — for taking screenshots when you use the hotkey
-- **Screen Content** — for ScreenCaptureKit access
+- Do not run `xcodebuild` from the terminal for this repo. It can invalidate TCC permissions and force you to re-grant screen recording, accessibility, and related permissions.
 
-## Architecture
+### 5. Grant macOS permissions
 
-If you want the full technical breakdown, read `CLAUDE.md`. But here's the short version:
+LoClicky needs:
 
-**Menu bar app** (no dock icon) with two `NSPanel` windows — one for the control panel dropdown, one for the full-screen transparent cursor overlay. Push-to-talk streams audio over a websocket to AssemblyAI, sends the transcript + screenshot to Claude via streaming SSE, and plays the response through ElevenLabs TTS. Claude can embed `[POINT:x,y:label:screenN]` tags in its responses to make the cursor fly to specific UI elements across multiple monitors. All three APIs are proxied through a Cloudflare Worker.
+- Microphone
+- Accessibility
+- Screen Recording
+- Screen Content
 
-## Project structure
+## How To Use It
 
+1. Launch the app from Xcode.
+2. Click the menu bar icon to open the panel.
+3. Hold `Control + Option` to use push-to-talk.
+4. Say what you want help with.
+5. LoClicky captures your screen, sends the request through the local gateway, and returns:
+   - a short spoken summary for TTS
+   - a detailed text response for the Swift UI
+   - an optional point target so the blue cursor can indicate where to click
+
+Typical examples:
+
+- “What should I click to start a new project?”
+- “Where is the settings button?”
+- “What does this error message mean?”
+
+## Local Mode Notes
+
+This repo currently uses `llama.cpp` for local chat when `chat.local.provider` is set to `llama_cpp`.
+
+The gateway can manage `llama-server` for you on app launch, but local multimodal startup is still not instant. Expect:
+
+- a warm-up delay before `127.0.0.1:5000` becomes reachable on a cold launch
+- slower screenshot turns than cloud models
+- better results with small focused prompts than open-ended assistant tasks
+
+If you want the app to feel genuinely useful day to day, the most practical setup is usually:
+
+- cloud chat
+- local transcription if you care about keeping audio local
+- local TTS if macOS `say` is good enough
+
+## Cloud Mode Notes
+
+Cloud mode is still the best option for:
+
+- faster responses
+- better screenshot understanding
+- more reliable reasoning
+- tasks that benefit from stronger general intelligence
+
+The value of this repo is that the Swift app stays local-first even when you choose cloud providers, because all service routing still goes through the gateway instead of hardcoding network providers into the app.
+
+## Project Structure
+
+```text
+leanring-buddy/          Swift macOS app
+gateway/                 Local gateway, config, frozen backend build
+worker/                  Legacy worker kept for reference
+AGENTS.md                Source-of-truth instructions for coding agents
+README.md                Project overview and setup
 ```
-leanring-buddy/          # Swift source (yes, the typo stays)
-  CompanionManager.swift    # Central state machine
-  CompanionPanelView.swift  # Menu bar panel UI
-  ClaudeAPI.swift           # Claude streaming client
-  ElevenLabsTTSClient.swift # Text-to-speech playback
-  OverlayWindow.swift       # Blue cursor overlay
-  AssemblyAI*.swift         # Real-time transcription
-  BuddyDictation*.swift     # Push-to-talk pipeline
-worker/                  # Cloudflare Worker proxy
-  src/index.ts              # Three routes: /chat, /tts, /transcribe-token
-CLAUDE.md                # Full architecture doc (agents read this)
-```
 
-## Contributing
+## Recommendation
 
-PRs welcome. If you're using Claude Code, it already knows the codebase — just tell it what you want to build and point it at `CLAUDE.md`.
+Don’t think of this as a failed product. Think of it as a useful fork that proved a few things clearly:
 
-Got feedback? DM me on X [@farzatv](https://x.com/farzatv).
+- the local gateway boundary is the right architectural move
+- local-only multimodal on a Mac is possible, but rough
+- cloud-backed mode is still the better user experience
+
+If you keep going, optimize for a good product rather than ideological purity:
+
+- use cloud where quality matters
+- keep the app architecture clean and local-first
+- use local models only where they are actually good enough
